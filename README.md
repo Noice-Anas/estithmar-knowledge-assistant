@@ -25,8 +25,10 @@ with no backend. It was built as a quick MVP to pitch the idea to the company.
   selected language even though the source content is Arabic.
 - **Chat history in cookies.** Your conversation is saved in a cookie on your device and
   restored on reload. You can **delete any single entry** (× in the sidebar) or **clear all**.
-- **Bring‑your‑own key.** Uses the **free Google Gemini** tier. Your API key is stored in a
-  cookie on your device only — it is never committed to the repo or sent to any server of ours.
+- **Bring‑your‑own key, two providers.** Pick **Google Gemini** (free tier) or **Anthropic
+  Claude** in the settings dialog and paste that provider's key. Each key is stored in its own
+  cookie on your device only — never committed to the repo or sent to any server of ours. You
+  can switch providers any time from **⚙ Settings**; both keys are remembered.
 
 ---
 
@@ -46,11 +48,13 @@ with no backend. It was built as a quick MVP to pitch the idea to the company.
 └────────┬────────────────────────────────────────────────────────────┘
          │  HTTPS POST (key from cookie)
          ▼
-   Google Gemini API  ──►  grounded, cited answer  ──►  rendered in chat
+   Gemini *or* Claude API  ──►  grounded, cited answer  ──►  rendered in chat
 ```
 
-No server of ours sits in the middle: the browser calls the Gemini REST API directly, using
-the key the visitor pasted (kept in a cookie).
+No server of ours sits in the middle: the browser calls the chosen provider's REST API directly,
+using the key the visitor pasted (kept in a cookie). For Claude, the request adds the
+`anthropic-dangerous-direct-browser-access` header — that's what allows the cross-origin call to
+succeed from a static page.
 
 ### Files
 
@@ -96,14 +100,25 @@ On first load you'll be asked for a Gemini key (see below).
 
 ---
 
-## 🔑 Get a free Gemini API key
+## 🔑 Get an API key
 
+The setup dialog lets you choose a provider. Pick whichever you have a key for.
+
+**Option A — Google Gemini (free):**
 1. Go to **Google AI Studio → API keys**: <https://aistudio.google.com/app/apikey>
 2. Sign in with a Google account and click **Create API key** (the free tier is enough for a demo).
-3. Copy the key (starts with `AIza…`).
-4. Paste it into the app's setup dialog and click **Save**. It's stored in a cookie on your device.
+   If you hit a `429 / quota tier unavailable` error, create the key in a **new/default** project or enable billing.
+3. Copy the key (starts with `AIza…`), paste it into the dialog (with **Google Gemini** selected), and click **Save**.
 
-You can change or delete the key any time from the **⚙ Settings** button.
+**Option B — Anthropic Claude:**
+1. Go to **Anthropic Console → API keys**: <https://console.anthropic.com/settings/keys>
+2. Create a key (starts with `sk-ant-…`). Claude is **paid** (no free tier) — you need credit on the account.
+3. Select **Anthropic Claude** in the dialog, paste the key, and click **Save**.
+
+Each key is stored in its own cookie on your device. Switch providers or delete a key any time from **⚙ Settings**.
+
+> The Claude model defaults to `claude-opus-4-8`. To lower cost, change `PROVIDERS.claude.model` in
+> `config.js` to `claude-haiku-4-5` or `claude-sonnet-5`.
 
 ---
 

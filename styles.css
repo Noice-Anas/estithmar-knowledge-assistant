@@ -605,6 +605,61 @@ html[dir="rtl"] .composer__send {
   margin: 0 0 14px;
 }
 
+.provider-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+
+.provider-select {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.provider-opt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 11px 13px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: start;
+  transition: all 0.15s ease;
+}
+
+.provider-opt:hover {
+  border-color: var(--green-500);
+}
+
+.provider-opt.is-active {
+  border-color: var(--green-600);
+  background: var(--green-050);
+  box-shadow: 0 0 0 2px var(--green-050);
+}
+
+.provider-opt__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--green-900);
+}
+
+.provider-opt__badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--green-700);
+  background: #d8efe6;
+  border-radius: 999px;
+  padding: 1px 8px;
+  letter-spacing: 0.02em;
+}
+
 .modal__link {
   display: inline-block;
   color: var(--green-600);

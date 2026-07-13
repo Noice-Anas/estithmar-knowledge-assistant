@@ -26,19 +26,22 @@
         "أجيب اعتمادًا على محتوى مركز المعرفة في شركة استثمار المستقبل، مع الإشارة إلى مصادر الإجابة.",
       inputPlaceholder: "اكتب سؤالك هنا...",
       send: "إرسال",
-      poweredBy: "مدعوم بـ Google Gemini — مفتاحك محفوظ في جهازك فقط.",
-      modalTitle: "إعداد مفتاح Gemini",
+      poweredBy: "مدعوم بـ {provider} — مفتاحك محفوظ في جهازك فقط.",
+      modalTitle: "إعداد مفتاح الذكاء الاصطناعي",
       modalBody:
-        "لتشغيل المساعد، أدخل مفتاح Google Gemini المجاني. يُحفظ المفتاح في ملفات تعريف الارتباط على جهازك ولا يُرسل إلى أي خادم تابع لنا.",
-      getKeyLink: "احصل على مفتاح مجاني من Google AI Studio ↗",
-      apiKeyPlaceholder: "ألصق المفتاح هنا (AIza...)",
+        "اختر مزوّد الذكاء الاصطناعي وأدخل مفتاحه. يُحفظ المفتاح في ملفات تعريف الارتباط على جهازك فقط ولا يُرسل إلى أي خادم تابع لنا.",
+      providerLabel: "مزوّد الذكاء الاصطناعي",
+      providerFree: "مجاني",
+      getKeyLinkGemini: "احصل على مفتاح مجاني من Google AI Studio ↗",
+      getKeyLinkClaude: "احصل على مفتاح من Anthropic Console ↗",
+      apiKeyPlaceholder: "ألصق المفتاح هنا",
       clearKey: "حذف المفتاح",
       cancel: "إلغاء",
       save: "حفظ",
       sourcesLabel: "المصادر:",
       thinking: "يبحث في مركز المعرفة...",
       errNoKey: "يرجى إدخال مفتاح Gemini أولًا.",
-      errInvalidKey: "المفتاح غير صحيح. تأكد من نسخه كاملًا من Google AI Studio.",
+      errInvalidKey: "المفتاح غير صحيح أو لا يملك صلاحية. تأكد من نسخه كاملًا من صفحة المزوّد.",
       errRate:
         "تم رفض الطلب بسبب تجاوز حصة الطلبات (Quota) في Gemini. إذا كان المفتاح جديدًا فغالبًا لا توجد حصة مجانية مخصصة لهذا المشروع بعد — أنشئ مفتاحًا في مشروع جديد/افتراضي في Google AI Studio أو فعّل الفوترة (Billing) على المشروع. وإن لم يكن المفتاح جديدًا فانتظر دقيقة ثم أعد المحاولة.",
       errNetwork:
@@ -71,12 +74,15 @@
         "I answer from the Estithmar Knowledge Center content and cite the sources I used.",
       inputPlaceholder: "Type your question...",
       send: "Send",
-      poweredBy: "Powered by Google Gemini — your key stays on your device.",
-      modalTitle: "Set up your Gemini key",
+      poweredBy: "Powered by {provider} — your key stays on your device.",
+      modalTitle: "Set up your AI key",
       modalBody:
-        "To run the assistant, enter your free Google Gemini API key. It is stored in a cookie on your device and never sent to any server of ours.",
-      getKeyLink: "Get a free key from Google AI Studio ↗",
-      apiKeyPlaceholder: "Paste your key here (AIza...)",
+        "Choose an AI provider and enter its key. The key is stored in a cookie on your device only and is never sent to any server of ours.",
+      providerLabel: "AI provider",
+      providerFree: "Free",
+      getKeyLinkGemini: "Get a free key from Google AI Studio ↗",
+      getKeyLinkClaude: "Get an API key from Anthropic Console ↗",
+      apiKeyPlaceholder: "Paste your key here",
       clearKey: "Delete key",
       cancel: "Cancel",
       save: "Save",
@@ -84,7 +90,7 @@
       thinking: "Searching the Knowledge Center...",
       errNoKey: "Please enter your Gemini key first.",
       errInvalidKey:
-        "That key looks invalid. Make sure you copied it fully from Google AI Studio.",
+        "That key looks invalid or lacks permission. Make sure you copied it fully from the provider's page.",
       errRate:
         "The request was rejected because Gemini's request quota was exceeded. If the key is new, this project likely has no free-tier quota assigned yet — create a key in a new/default project in Google AI Studio, or enable billing on the project. If the key isn't new, wait a minute and try again.",
       errNetwork:
@@ -125,12 +131,26 @@
   /* ---------- State ---------- */
   const state = {
     lang: getCookie(CFG.COOKIE_LANG) === "en" ? "en" : "ar",
-    apiKey: getCookie(CFG.COOKIE_KEY) || "",
+    provider: CFG.PROVIDERS[getCookie(CFG.COOKIE_PROVIDER)]
+      ? getCookie(CFG.COOKIE_PROVIDER)
+      : CFG.DEFAULT_PROVIDER,
+    keys: {
+      gemini: getCookie(CFG.COOKIE_KEY_GEMINI) || "",
+      claude: getCookie(CFG.COOKIE_KEY_CLAUDE) || "",
+    },
+    modalProvider: CFG.DEFAULT_PROVIDER, // provider currently shown in the modal
     records: [],
     turns: loadHistory(), // [{id,q,a,sources,ts}]
     busy: false,
   };
   let turnSeq = state.turns.reduce((m, t) => Math.max(m, t.id || 0), 0);
+
+  function providerKeyCookie(p) {
+    return p === "claude" ? CFG.COOKIE_KEY_CLAUDE : CFG.COOKIE_KEY_GEMINI;
+  }
+  function currentKey() {
+    return state.keys[state.provider] || "";
+  }
 
   /* ---------- DOM ---------- */
   const $ = (id) => document.getElementById(id);
@@ -146,11 +166,13 @@
     langToggle: $("langToggle"),
     settingsBtn: $("settingsBtn"),
     menuToggle: $("menuToggle"),
+    poweredBy: $("poweredBy"),
     historyList: $("historyList"),
     historyEmpty: $("historyEmpty"),
     clearHistoryBtn: $("clearHistoryBtn"),
     // modal
     backdrop: $("modalBackdrop"),
+    providerSelect: $("providerSelect"),
     apiKeyInput: $("apiKeyInput"),
     modalError: $("modalError"),
     getKeyLink: $("getKeyLink"),
@@ -180,10 +202,20 @@
       const val = L[node.getAttribute("data-i18n-title")];
       if (val) node.setAttribute("title", val);
     });
-    el.getKeyLink.setAttribute("href", CFG.GET_KEY_URL);
+    updateComposerHint();
+    if (!el.backdrop.hidden) selectModalProvider(state.modalProvider);
     renderSuggestions();
     renderChat();
     renderHistory();
+  }
+
+  function updateComposerHint() {
+    if (el.poweredBy) {
+      el.poweredBy.textContent = t("poweredBy").replace(
+        "{provider}",
+        CFG.PROVIDERS[state.provider].label
+      );
+    }
   }
 
   function toggleLanguage() {
@@ -319,9 +351,31 @@
       .join("\n\n---\n\n");
   }
 
+  // The user turn sent to whichever provider: retrieved excerpts + the question.
+  function buildUserText(question, chunks) {
+    return (
+      "Knowledge Center excerpts:\n\n" +
+      buildContextBlock(chunks) +
+      "\n\n====\n\nUser question: " +
+      question
+    );
+  }
+
+  // Dispatch to the active provider.
+  function askProvider(question, chunks) {
+    return state.provider === "claude"
+      ? askClaude(question, chunks)
+      : askGemini(question, chunks);
+  }
+
   async function askGemini(question, chunks) {
+    const model = CFG.PROVIDERS.gemini.model;
     const url =
-      CFG.API_BASE + "/" + CFG.MODEL + ":generateContent?key=" + encodeURIComponent(state.apiKey);
+      CFG.GEMINI_API_BASE +
+      "/" +
+      model +
+      ":generateContent?key=" +
+      encodeURIComponent(state.keys.gemini);
 
     // Light multi-turn memory: include up to the last 3 exchanges for follow-ups.
     const history = [];
@@ -330,11 +384,7 @@
       if (turn.a) history.push({ role: "model", parts: [{ text: turn.a }] });
     });
 
-    const userText =
-      "Knowledge Center excerpts:\n\n" +
-      buildContextBlock(chunks) +
-      "\n\n====\n\nUser question: " +
-      question;
+    const userText = buildUserText(question, chunks);
 
     const body = {
       system_instruction: { parts: [{ text: buildSystemInstruction() }] },
@@ -372,6 +422,63 @@
     if (!cand || !cand.content || !cand.content.parts)
       throw { kind: "generic", detail: "empty response" };
     return cand.content.parts.map((p) => p.text || "").join("").trim();
+  }
+
+  async function askClaude(question, chunks) {
+    // Anthropic messages must alternate user/assistant and start with user.
+    const messages = [];
+    state.turns.slice(-3).forEach((turn) => {
+      if (turn.q) messages.push({ role: "user", content: turn.q });
+      if (turn.a) messages.push({ role: "assistant", content: turn.a });
+    });
+    messages.push({ role: "user", content: buildUserText(question, chunks) });
+
+    const body = {
+      model: CFG.PROVIDERS.claude.model,
+      max_tokens: CFG.CLAUDE_MAX_TOKENS,
+      system: buildSystemInstruction(),
+      messages: messages,
+      // No temperature/top_p — those are rejected by the latest Claude models.
+    };
+
+    let res;
+    try {
+      res = await fetch(CFG.CLAUDE_API_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": state.keys.claude,
+          "anthropic-version": CFG.CLAUDE_VERSION,
+          // Required to allow the call directly from a browser (CORS).
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw { kind: "network" };
+    }
+
+    if (!res.ok) {
+      let msg = "";
+      try {
+        const err = await res.json();
+        msg = (err.error && err.error.message) || "";
+      } catch (e) {}
+      if (res.status === 401 || res.status === 403) throw { kind: "invalidKey" };
+      if (res.status === 400 && /credit|billing|x-api-key|api key|api_key/i.test(msg))
+        throw { kind: "invalidKey" };
+      if (res.status === 429) throw { kind: "rate", detail: msg };
+      throw { kind: "generic", detail: msg };
+    }
+
+    const data = await res.json();
+    const text = (data.content || [])
+      .filter((b) => b.type === "text")
+      .map((b) => b.text || "")
+      .join("")
+      .trim();
+    if (!text) throw { kind: "generic", detail: "empty response" };
+    return text;
   }
 
   /* ---------- Rendering ---------- */
@@ -648,9 +755,57 @@
   }
 
   /* ---------- Modal ---------- */
-  function openModal() {
-    el.apiKeyInput.value = state.apiKey || "";
+  // Build the provider chips once.
+  function buildProviderSelect() {
+    el.providerSelect.innerHTML = "";
+    Object.keys(CFG.PROVIDERS).forEach((p) => {
+      const cfg = CFG.PROVIDERS[p];
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "provider-opt";
+      btn.setAttribute("data-provider", p);
+
+      const name = document.createElement("span");
+      name.className = "provider-opt__name";
+      name.textContent = cfg.label;
+      btn.appendChild(name);
+
+      if (cfg.free) {
+        const badge = document.createElement("span");
+        badge.className = "provider-opt__badge";
+        badge.textContent = t("providerFree");
+        btn.appendChild(badge);
+      }
+      btn.addEventListener("click", () => selectModalProvider(p));
+      el.providerSelect.appendChild(btn);
+    });
+  }
+
+  // Switch which provider the modal is editing (does not commit until Save).
+  function selectModalProvider(p) {
+    state.modalProvider = p;
+    const cfg = CFG.PROVIDERS[p];
+    buildProviderSelect();
+    el.providerSelect.querySelectorAll(".provider-opt").forEach((btn) => {
+      btn.classList.toggle(
+        "is-active",
+        btn.getAttribute("data-provider") === p
+      );
+    });
+    el.apiKeyInput.value = state.keys[p] || "";
+    el.apiKeyInput.setAttribute(
+      "placeholder",
+      t("apiKeyPlaceholder") + " (" + cfg.keyHint + ")"
+    );
+    el.getKeyLink.setAttribute("href", cfg.getKeyUrl);
+    el.getKeyLink.textContent = t(
+      p === "claude" ? "getKeyLinkClaude" : "getKeyLinkGemini"
+    );
     el.modalError.hidden = true;
+  }
+
+  function openModal() {
+    selectModalProvider(state.provider);
     el.backdrop.hidden = false;
     el.apiKeyInput.focus();
   }
@@ -659,18 +814,24 @@
   }
   function saveKey() {
     const key = el.apiKeyInput.value.trim();
+    const p = state.modalProvider;
     if (!key) {
       el.modalError.textContent = t("errNoKey");
       el.modalError.hidden = false;
       return;
     }
-    state.apiKey = key;
-    setCookie(CFG.COOKIE_KEY, key, CFG.COOKIE_DAYS);
+    state.keys[p] = key;
+    setCookie(providerKeyCookie(p), key, CFG.COOKIE_DAYS);
+    // Selecting a provider in the dialog also makes it the active one.
+    state.provider = p;
+    setCookie(CFG.COOKIE_PROVIDER, p, CFG.COOKIE_DAYS);
+    updateComposerHint();
     closeModal();
   }
   function clearKey() {
-    state.apiKey = "";
-    deleteCookie(CFG.COOKIE_KEY);
+    const p = state.modalProvider;
+    state.keys[p] = "";
+    deleteCookie(providerKeyCookie(p));
     el.apiKeyInput.value = "";
     el.modalError.hidden = true;
   }
@@ -681,7 +842,7 @@
     question = question.trim();
     if (!question) return;
 
-    if (!state.apiKey) {
+    if (!currentKey()) {
       openModal();
       return;
     }
@@ -700,7 +861,7 @@
 
     try {
       const chunks = retrieve(question);
-      const answer = await askGemini(question, chunks);
+      const answer = await askProvider(question, chunks);
       turn.a = answer;
       turn.sources = chunks.length ? dedupeSources(chunks) : [];
       removeTyping();
@@ -806,7 +967,7 @@
     bindEvents();
     await loadKnowledge();
     indexRecords();
-    if (!state.apiKey) openModal();
+    if (!currentKey()) openModal();
   }
 
   init();

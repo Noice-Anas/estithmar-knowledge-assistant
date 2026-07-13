@@ -109,7 +109,7 @@
               ➤
             </button>
           </form>
-          <div class="composer__hint" data-i18n="poweredBy">
+          <div class="composer__hint" id="poweredBy">
             مدعوم بـ Google Gemini — مفتاحك محفوظ في جهازك فقط.
           </div>
         </footer>
@@ -124,26 +124,28 @@
         aria-modal="true"
         aria-labelledby="modalTitle"
       >
-        <h2 id="modalTitle" data-i18n="modalTitle">إعداد مفتاح Gemini</h2>
+        <h2 id="modalTitle" data-i18n="modalTitle">إعداد مفتاح الذكاء الاصطناعي</h2>
         <p class="modal__body" data-i18n="modalBody">
-          لتشغيل المساعد، أدخل مفتاح Google Gemini المجاني. يُحفظ المفتاح في
-          ملفات تعريف الارتباط على جهازك ولا يُرسل إلى أي خادم تابع لنا.
+          اختر مزوّد الذكاء الاصطناعي وأدخل مفتاحه. يُحفظ المفتاح في ملفات تعريف
+          الارتباط على جهازك فقط ولا يُرسل إلى أي خادم تابع لنا.
         </p>
+        <div class="provider-label" data-i18n="providerLabel">
+          مزوّد الذكاء الاصطناعي
+        </div>
+        <div class="provider-select" id="providerSelect" role="group"></div>
         <a
           class="modal__link"
           id="getKeyLink"
           href="#"
           target="_blank"
           rel="noopener"
-          data-i18n="getKeyLink"
-          >احصل على مفتاح مجاني من Google AI Studio ↗</a
+          >احصل على مفتاح ↗</a
         >
         <input
           type="password"
           id="apiKeyInput"
           class="modal__input"
-          data-i18n-placeholder="apiKeyPlaceholder"
-          placeholder="ألصق المفتاح هنا (AIza...)"
+          placeholder="ألصق المفتاح هنا"
           spellcheck="false"
         />
         <div class="modal__error" id="modalError" hidden></div>
