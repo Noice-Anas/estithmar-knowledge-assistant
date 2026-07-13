@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>مساعد مركز المعرفة | Estithmar Knowledge Assistant</title>
+    <meta
+      name="description"
+      content="مساعد ذكي تجريبي يجيب من محتوى مركز المعرفة لشركة استثمار المستقبل للأوقاف والوصايا."
+    />
+    <link rel="preconnect" href="https://generativelanguage.googleapis.com" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- ===== App shell ===== -->
+    <div class="app" id="app">
+      <!-- Sidebar: chat history -->
+      <aside class="sidebar" id="sidebar" aria-label="History">
+        <div class="sidebar__head">
+          <h2 class="sidebar__title" data-i18n="historyTitle">المحادثة</h2>
+          <button
+            class="btn-ghost"
+            id="clearHistoryBtn"
+            type="button"
+            data-i18n-title="clearAll"
+            title="مسح الكل"
+          >
+            <span data-i18n="clearAll">مسح الكل</span>
+          </button>
+        </div>
+        <div class="history" id="historyList" role="list"></div>
+        <p class="history__empty" id="historyEmpty" data-i18n="historyEmpty">
+          لا توجد رسائل محفوظة بعد.
+        </p>
+        <div class="sidebar__note" data-i18n="historyNote">
+          يتم حفظ المحادثة في ملفات تعريف الارتباط (الكوكيز) على جهازك فقط.
+        </div>
+      </aside>
+
+      <!-- Main column -->
+      <main class="main">
+        <header class="topbar">
+          <button
+            class="btn-icon menu-toggle"
+            id="menuToggle"
+            type="button"
+            aria-label="Menu"
+          >
+            ☰
+          </button>
+          <div class="brand">
+            <div class="brand__mark" aria-hidden="true">و</div>
+            <div class="brand__text">
+              <strong data-i18n="brandTitle">مساعد مركز المعرفة</strong>
+              <span data-i18n="brandSubtitle">استثمار المستقبل للأوقاف والوصايا</span>
+            </div>
+          </div>
+          <div class="topbar__actions">
+            <button class="btn-lang" id="langToggle" type="button">
+              <span data-i18n="langSwitch">English</span>
+            </button>
+            <button
+              class="btn-icon"
+              id="settingsBtn"
+              type="button"
+              data-i18n-title="settings"
+              title="الإعدادات"
+            >
+              ⚙
+            </button>
+          </div>
+        </header>
+
+        <div class="disclaimer" data-i18n="disclaimer">
+          نموذج تجريبي غير رسمي لأغراض العرض — يعتمد على مقتطفات من مركز المعرفة العام.
+        </div>
+
+        <!-- Messages -->
+        <section class="chat" id="chat" aria-live="polite">
+          <div class="welcome" id="welcome">
+            <div class="welcome__icon" aria-hidden="true">📚</div>
+            <h1 data-i18n="welcomeTitle">اسأل عن الأوقاف والوصايا</h1>
+            <p data-i18n="welcomeBody">
+              أجيب اعتمادًا على محتوى مركز المعرفة في شركة استثمار المستقبل، مع
+              الإشارة إلى مصادر الإجابة.
+            </p>
+            <div class="suggestions" id="suggestions"></div>
+          </div>
+        </section>
+
+        <!-- Composer -->
+        <footer class="composer">
+          <form id="composerForm" class="composer__form" autocomplete="off">
+            <textarea
+              id="input"
+              class="composer__input"
+              rows="1"
+              data-i18n-placeholder="inputPlaceholder"
+              placeholder="اكتب سؤالك هنا..."
+            ></textarea>
+            <button
+              type="submit"
+              class="composer__send"
+              id="sendBtn"
+              data-i18n-title="send"
+              title="إرسال"
+              aria-label="Send"
+            >
+              ➤
+            </button>
+          </form>
+          <div class="composer__hint" data-i18n="poweredBy">
+            مدعوم بـ Google Gemini — مفتاحك محفوظ في جهازك فقط.
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <!-- ===== Settings / API key modal ===== -->
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modalTitle"
+      >
+        <h2 id="modalTitle" data-i18n="modalTitle">إعداد مفتاح Gemini</h2>
+        <p class="modal__body" data-i18n="modalBody">
+          لتشغيل المساعد، أدخل مفتاح Google Gemini المجاني. يُحفظ المفتاح في
+          ملفات تعريف الارتباط على جهازك ولا يُرسل إلى أي خادم تابع لنا.
+        </p>
+        <a
+          class="modal__link"
+          id="getKeyLink"
+          href="#"
+          target="_blank"
+          rel="noopener"
+          data-i18n="getKeyLink"
+          >احصل على مفتاح مجاني من Google AI Studio ↗</a
+        >
+        <input
+          type="password"
+          id="apiKeyInput"
+          class="modal__input"
+          data-i18n-placeholder="apiKeyPlaceholder"
+          placeholder="ألصق المفتاح هنا (AIza...)"
+          spellcheck="false"
+        />
+        <div class="modal__error" id="modalError" hidden></div>
+        <div class="modal__actions">
+          <button
+            type="button"
+            class="btn-secondary"
+            id="clearKeyBtn"
+            data-i18n="clearKey"
+          >
+            حذف المفتاح
+          </button>
+          <div class="modal__actions-right">
+            <button
+              type="button"
+              class="btn-secondary"
+              id="modalCancel"
+              data-i18n="cancel"
+            >
+              إلغاء
+            </button>
+            <button
+              type="button"
+              class="btn-primary"
+              id="saveKeyBtn"
+              data-i18n="save"
+            >
+              حفظ
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

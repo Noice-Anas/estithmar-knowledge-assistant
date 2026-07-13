@@ -1,0 +1,17 @@
+# Secrets — never commit API keys
+gemini-api-key.md
+*.key
+.env
+.env.*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.playwright-mcp/
+
+# Unrelated working docs that share this folder but aren't part of the demo.
+# Delete these lines if you DO want them published to GitHub Pages.
+estithmar-seo-geo-action-plan.md
+estithmar-seo-geo-presentation.pdf
+خطة-تحسين-الظهور-estithmar.md
+عرض-تحسين-الظهور-estithmar.pdf
