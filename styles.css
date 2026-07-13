@@ -211,18 +211,12 @@ body {
   min-width: 0;
 }
 
-.brand__mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  background: linear-gradient(145deg, var(--green-600), var(--green-900));
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 22px;
-  font-weight: 700;
+.brand__logo {
+  height: 34px;
+  width: auto;
+  max-width: 150px;
+  object-fit: contain;
   flex: none;
-  box-shadow: inset 0 0 0 1.5px var(--gold-500);
 }
 
 .brand__text {
@@ -473,8 +467,11 @@ body {
   padding: 30px 16px;
 }
 
-.welcome__icon {
-  font-size: 42px;
+.welcome__logo {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  margin: 0 auto 4px;
 }
 
 .welcome h1 {
