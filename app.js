@@ -14,10 +14,11 @@
       langSwitch: "English",
       brandTitle: "مساعد مركز المعرفة",
       brandSubtitle: "استثمار المستقبل للأوقاف والوصايا",
-      historyTitle: "المحادثة",
+      historyTitle: "المحادثات",
+      newChat: "محادثة جديدة",
       clearAll: "مسح الكل",
-      historyEmpty: "لا توجد رسائل محفوظة بعد.",
-      historyNote: "يتم حفظ المحادثة في ملفات تعريف الارتباط (الكوكيز) على جهازك فقط.",
+      historyEmpty: "لا توجد محادثات محفوظة بعد.",
+      historyNote: "تُحفظ محادثاتك محليًا على جهازك فقط.",
       settings: "الإعدادات",
       disclaimer:
         "نموذج تجريبي غير رسمي لأغراض العرض — يعتمد على مقتطفات من مركز المعرفة العام.",
@@ -48,7 +49,7 @@
         "تعذّر الاتصال بخدمة Gemini. تحقق من الاتصال بالإنترنت وحاول مجددًا.",
       errGeneric: "حدث خطأ غير متوقع. حاول مرة أخرى.",
       keySaved: "تم حفظ المفتاح. يمكنك بدء المحادثة الآن.",
-      confirmClear: "هل تريد مسح كامل المحادثة؟",
+      confirmClear: "هل تريد مسح جميع المحادثات؟",
       suggestions: [
         "ما الفرق بين الوقف الخيري والذري في الزكاة؟",
         "هل تخضع الأوقاف لضريبة القيمة المضافة؟",
@@ -62,10 +63,11 @@
       langSwitch: "العربية",
       brandTitle: "Knowledge Center Assistant",
       brandSubtitle: "Estithmar — Endowments & Wills",
-      historyTitle: "Conversation",
+      historyTitle: "Conversations",
+      newChat: "New conversation",
       clearAll: "Clear all",
-      historyEmpty: "No saved messages yet.",
-      historyNote: "Your conversation is stored only in cookies on this device.",
+      historyEmpty: "No saved conversations yet.",
+      historyNote: "Your conversations are stored locally on this device only.",
       settings: "Settings",
       disclaimer:
         "Unofficial demo for presentation — grounded in excerpts from the public Knowledge Center.",
@@ -97,7 +99,7 @@
         "Couldn't reach the Gemini service. Check your connection and retry.",
       errGeneric: "Something went wrong. Please try again.",
       keySaved: "Key saved. You can start chatting now.",
-      confirmClear: "Clear the entire conversation?",
+      confirmClear: "Clear all conversations?",
       suggestions: [
         "How is zakat treated for charitable vs. family waqf?",
         "Are endowments subject to VAT in Saudi Arabia?",
@@ -140,10 +142,20 @@
     },
     modalProvider: CFG.DEFAULT_PROVIDER, // provider currently shown in the modal
     records: [],
-    turns: loadHistory(), // [{id,q,a,sources,ts}]
+    // Multiple conversations, each {id, title, turns:[{id,q,a,sources,ts}], ts}.
+    convos: loadConvos(),
+    activeId: null,
     busy: false,
   };
-  let turnSeq = state.turns.reduce((m, t) => Math.max(m, t.id || 0), 0);
+  // Unique, monotonically-increasing ids for conversations and turns.
+  let convoSeq = state.convos.reduce((m, c) => Math.max(m, c.id || 0), 0);
+  let turnSeq = state.convos.reduce(
+    (m, c) => Math.max(m, c.turns.reduce((mm, tn) => Math.max(mm, tn.id || 0), 0)),
+    0
+  );
+  // Restore the last-open conversation, or open the most recent / a fresh one.
+  state.activeId = loadActiveId();
+  ensureActive();
 
   function providerKeyCookie(p) {
     return p === "claude" ? CFG.COOKIE_KEY_CLAUDE : CFG.COOKIE_KEY_GEMINI;
@@ -170,6 +182,7 @@
     historyList: $("historyList"),
     historyEmpty: $("historyEmpty"),
     clearHistoryBtn: $("clearHistoryBtn"),
+    newChatBtn: $("newChatBtn"),
     // modal
     backdrop: $("modalBackdrop"),
     providerSelect: $("providerSelect"),
@@ -361,28 +374,64 @@
     );
   }
 
-  // Dispatch to the active provider.
-  function askProvider(question, chunks) {
+  // Dispatch to the active provider. `onDelta` (optional) receives each chunk
+  // of generated text as it streams in, for a ChatGPT-style word-by-word reveal.
+  function askProvider(question, chunks, onDelta) {
     return state.provider === "claude"
-      ? askClaude(question, chunks)
-      : askGemini(question, chunks);
+      ? askClaude(question, chunks, onDelta)
+      : askGemini(question, chunks, onDelta);
   }
 
-  async function askGemini(question, chunks) {
+  // Read a Server-Sent Events (SSE) response body and invoke `onData` with the
+  // JSON payload string of every `data:` line. Falls back to buffering the whole
+  // body where streaming reads aren't available.
+  async function readSSE(res, onData) {
+    const handleLine = (line) => {
+      const trimmed = line.replace(/\r$/, "");
+      if (trimmed.indexOf("data:") !== 0) return;
+      const payload = trimmed.slice(5).trim();
+      if (payload && payload !== "[DONE]") onData(payload);
+    };
+    if (res.body && res.body.getReader) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n")) >= 0) {
+          handleLine(buffer.slice(0, idx));
+          buffer = buffer.slice(idx + 1);
+        }
+      }
+      if (buffer) handleLine(buffer);
+    } else {
+      // No streaming reader available — parse the full body at once.
+      (await res.text()).split(/\n/).forEach(handleLine);
+    }
+  }
+
+  async function askGemini(question, chunks, onDelta) {
     const model = CFG.PROVIDERS.gemini.model;
     const url =
       CFG.GEMINI_API_BASE +
       "/" +
       model +
-      ":generateContent?key=" +
+      ":streamGenerateContent?alt=sse&key=" +
       encodeURIComponent(state.keys.gemini);
 
-    // Light multi-turn memory: include up to the last 3 exchanges for follow-ups.
+    // Light multi-turn memory: include up to the last 3 answered exchanges from
+    // the current conversation for follow-ups.
     const history = [];
-    state.turns.slice(-3).forEach((turn) => {
-      if (turn.q) history.push({ role: "user", parts: [{ text: turn.q }] });
-      if (turn.a) history.push({ role: "model", parts: [{ text: turn.a }] });
-    });
+    activeConvo()
+      .turns.filter((turn) => turn.a)
+      .slice(-3)
+      .forEach((turn) => {
+        if (turn.q) history.push({ role: "user", parts: [{ text: turn.q }] });
+        if (turn.a) history.push({ role: "model", parts: [{ text: turn.a }] });
+      });
 
     const userText = buildUserText(question, chunks);
 
@@ -417,20 +466,37 @@
       throw { kind: "generic", detail: msg };
     }
 
-    const data = await res.json();
-    const cand = data.candidates && data.candidates[0];
-    if (!cand || !cand.content || !cand.content.parts)
-      throw { kind: "generic", detail: "empty response" };
-    return cand.content.parts.map((p) => p.text || "").join("").trim();
+    let full = "";
+    await readSSE(res, (payload) => {
+      let obj;
+      try {
+        obj = JSON.parse(payload);
+      } catch (e) {
+        return;
+      }
+      const cand = obj.candidates && obj.candidates[0];
+      if (!cand || !cand.content || !cand.content.parts) return;
+      const piece = cand.content.parts.map((p) => p.text || "").join("");
+      if (piece) {
+        full += piece;
+        if (onDelta) onDelta(piece);
+      }
+    });
+    full = full.trim();
+    if (!full) throw { kind: "generic", detail: "empty response" };
+    return full;
   }
 
-  async function askClaude(question, chunks) {
+  async function askClaude(question, chunks, onDelta) {
     // Anthropic messages must alternate user/assistant and start with user.
     const messages = [];
-    state.turns.slice(-3).forEach((turn) => {
-      if (turn.q) messages.push({ role: "user", content: turn.q });
-      if (turn.a) messages.push({ role: "assistant", content: turn.a });
-    });
+    activeConvo()
+      .turns.filter((turn) => turn.a)
+      .slice(-3)
+      .forEach((turn) => {
+        if (turn.q) messages.push({ role: "user", content: turn.q });
+        if (turn.a) messages.push({ role: "assistant", content: turn.a });
+      });
     messages.push({ role: "user", content: buildUserText(question, chunks) });
 
     const body = {
@@ -438,6 +504,8 @@
       max_tokens: CFG.CLAUDE_MAX_TOKENS,
       system: buildSystemInstruction(),
       messages: messages,
+      // Stream the response so it renders word-by-word as it's generated.
+      stream: true,
       // No temperature/top_p — those are rejected by the latest Claude models.
     };
 
@@ -471,14 +539,31 @@
       throw { kind: "generic", detail: msg };
     }
 
-    const data = await res.json();
-    const text = (data.content || [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text || "")
-      .join("")
-      .trim();
-    if (!text) throw { kind: "generic", detail: "empty response" };
-    return text;
+    let full = "";
+    await readSSE(res, (payload) => {
+      let ev;
+      try {
+        ev = JSON.parse(payload);
+      } catch (e) {
+        return;
+      }
+      if (
+        ev.type === "content_block_delta" &&
+        ev.delta &&
+        ev.delta.type === "text_delta"
+      ) {
+        const piece = ev.delta.text || "";
+        if (piece) {
+          full += piece;
+          if (onDelta) onDelta(piece);
+        }
+      } else if (ev.type === "error") {
+        throw { kind: "generic", detail: (ev.error && ev.error.message) || "" };
+      }
+    });
+    full = full.trim();
+    if (!full) throw { kind: "generic", detail: "empty response" };
+    return full;
   }
 
   /* ---------- Rendering ---------- */
@@ -593,12 +678,13 @@
   function renderChat() {
     // Clear all messages but keep welcome node reference.
     el.chat.innerHTML = "";
-    if (!state.turns.length) {
+    const turns = activeConvo().turns;
+    if (!turns.length) {
       el.chat.appendChild(el.welcome);
       el.welcome.hidden = false;
       return;
     }
-    state.turns.forEach((turn) => {
+    turns.forEach((turn) => {
       el.chat.appendChild(makeMessage("user", escapeHtml(turn.q)));
       if (turn.a || turn.sources) {
         el.chat.appendChild(
@@ -629,127 +715,249 @@
     if (node) node.remove();
   }
 
-  /* ---------- History (cookie-persisted) ---------- */
-  function loadHistory() {
+  /* ---------- Conversations (localStorage-persisted) ---------- */
+  // Turn <-> compact-storage mappers (keeps the JSON small).
+  function serializeTurn(tn) {
+    return {
+      i: tn.id,
+      q: tn.q,
+      a: tn.a,
+      ts: tn.ts,
+      s: (tn.sources || []).map((s) => ({
+        u: s.url,
+        a: s.title_ar,
+        e: s.title_en,
+      })),
+    };
+  }
+  function deserializeTurn(o) {
+    return {
+      id: o.i,
+      q: o.q,
+      a: o.a,
+      ts: o.ts,
+      sources: (o.s || []).map((s) => ({
+        url: s.u,
+        title_ar: s.a,
+        title_en: s.e,
+      })),
+    };
+  }
+  function serializeConvo(c) {
+    return { i: c.id, t: c.title || "", ts: c.ts, turns: c.turns.map(serializeTurn) };
+  }
+  function deserializeConvo(o) {
+    if (!o) return null;
+    return {
+      id: o.i,
+      title: o.t || "",
+      ts: o.ts || Date.now(),
+      turns: (o.turns || []).map(deserializeTurn),
+    };
+  }
+
+  // One-time migration of the old single-conversation cookie into a convo.
+  function migrateCookieHistory() {
     try {
       const raw = getCookie(CFG.COOKIE_HISTORY);
-      if (!raw) return [];
+      if (!raw) return null;
       const arr = JSON.parse(raw);
-      // stored compact: {i,q,a,s:[{t_ar,t_en,u}],ts}
-      return arr.map((o) => ({
-        id: o.i,
-        q: o.q,
-        a: o.a,
-        ts: o.ts,
-        sources: (o.s || []).map((s) => ({
-          url: s.u,
-          title_ar: s.a,
-          title_en: s.e,
-        })),
-      }));
+      deleteCookie(CFG.COOKIE_HISTORY);
+      if (!Array.isArray(arr) || !arr.length) return null;
+      const turns = arr.map(deserializeTurn);
+      return {
+        id: 1,
+        title: (turns[0] && turns[0].q) || "",
+        ts: turns[turns.length - 1].ts || Date.now(),
+        turns,
+      };
     } catch (e) {
-      return [];
+      return null;
     }
   }
 
-  function serializeHistory(turns) {
-    return JSON.stringify(
-      turns.map((tn) => ({
-        i: tn.id,
-        q: tn.q,
-        a: tn.a,
-        ts: tn.ts,
-        s: (tn.sources || []).map((s) => ({
-          u: s.url,
-          a: s.title_ar,
-          e: s.title_en,
-        })),
-      }))
+  function loadConvos() {
+    let list = [];
+    try {
+      const raw = localStorage.getItem(CFG.STORE_CONVOS);
+      if (raw) list = (JSON.parse(raw) || []).map(deserializeConvo).filter(Boolean);
+    } catch (e) {
+      list = [];
+    }
+    if (!list.length) {
+      const migrated = migrateCookieHistory();
+      if (migrated) list.push(migrated);
+    }
+    return list;
+  }
+
+  function loadActiveId() {
+    try {
+      const raw = localStorage.getItem(CFG.STORE_ACTIVE);
+      const id = raw ? parseInt(raw, 10) : NaN;
+      return isNaN(id) ? null : id;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveActiveId() {
+    try {
+      localStorage.setItem(CFG.STORE_ACTIVE, String(state.activeId));
+    } catch (e) {}
+  }
+
+  // Persist every non-empty conversation. On quota errors, drop the oldest
+  // inactive conversations until it fits.
+  function saveConvos() {
+    const write = () =>
+      localStorage.setItem(
+        CFG.STORE_CONVOS,
+        JSON.stringify(
+          state.convos.filter((c) => c.turns.length).map(serializeConvo)
+        )
+      );
+    try {
+      write();
+    } catch (e) {
+      let guard = 100;
+      while (guard-- > 0) {
+        const victim = state.convos
+          .filter((c) => c.id !== state.activeId && c.turns.length)
+          .sort((a, b) => (a.ts || 0) - (b.ts || 0))[0];
+        if (!victim) break;
+        state.convos = state.convos.filter((c) => c !== victim);
+        try {
+          write();
+          break;
+        } catch (e2) {}
+      }
+    }
+    saveActiveId();
+  }
+
+  function createConvo() {
+    const c = { id: ++convoSeq, title: "", turns: [], ts: Date.now() };
+    state.convos.push(c);
+    state.activeId = c.id;
+    return c;
+  }
+
+  function activeConvo() {
+    let c = state.convos.find((x) => x.id === state.activeId);
+    if (!c) c = createConvo();
+    return c;
+  }
+
+  // Guarantee there is a valid active conversation to render into.
+  function ensureActive() {
+    if (state.convos.find((c) => c.id === state.activeId)) return;
+    const recent = state.convos
+      .filter((c) => c.turns.length)
+      .sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+    if (recent) state.activeId = recent.id;
+    else createConvo();
+  }
+
+  // Drop empty conversations (unread new-chat drafts) except the given id.
+  function pruneEmpties(keepId) {
+    state.convos = state.convos.filter(
+      (c) => c.turns.length || c.id === keepId
     );
   }
 
-  function saveHistory() {
-    // Trim oldest turns until the serialized cookie fits the byte budget.
-    let turns = state.turns.slice();
-    let payload = serializeHistory(turns);
-    while (
-      turns.length > 1 &&
-      encodeURIComponent(payload).length > CFG.HISTORY_MAX_BYTES
-    ) {
-      turns.shift();
-      payload = serializeHistory(turns);
-    }
-    // If even a single turn is too big, truncate its stored answer.
-    if (encodeURIComponent(payload).length > CFG.HISTORY_MAX_BYTES && turns.length === 1) {
-      const only = Object.assign({}, turns[0]);
-      only.a = (only.a || "").slice(0, 400) + "…";
-      turns = [only];
-      payload = serializeHistory(turns);
-    }
-    state.turns = turns;
-    setCookie(CFG.COOKIE_HISTORY, payload, CFG.COOKIE_DAYS);
+  function convoTitle(c) {
+    return c.title || (c.turns[0] && c.turns[0].q) || t("newChat");
   }
 
   function renderHistory() {
     el.historyList.innerHTML = "";
-    if (!state.turns.length) {
+    // Only conversations with at least one exchange appear in the list.
+    const convos = state.convos
+      .filter((c) => c.turns.length)
+      .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    if (!convos.length) {
       el.historyEmpty.hidden = false;
       return;
     }
     el.historyEmpty.hidden = true;
-    // Newest first in the sidebar.
-    state.turns
-      .slice()
-      .reverse()
-      .forEach((turn) => {
-        const item = document.createElement("div");
-        item.className = "history__item";
-        item.setAttribute("role", "listitem");
+    convos.forEach((c) => {
+      const item = document.createElement("div");
+      item.className =
+        "history__item" + (c.id === state.activeId ? " is-active" : "");
+      item.setAttribute("role", "listitem");
 
-        const q = document.createElement("div");
-        q.className = "history__q";
-        q.textContent = turn.q;
-        q.addEventListener("click", () => {
-          closeSidebarMobile();
-          scrollToTurn(turn.id);
-        });
+      const q = document.createElement("div");
+      q.className = "history__q";
+      q.textContent = convoTitle(c);
+      q.addEventListener("click", () => switchConvo(c.id));
 
-        const del = document.createElement("button");
-        del.className = "history__del";
-        del.type = "button";
-        del.textContent = "×";
-        del.setAttribute("aria-label", "delete");
-        del.addEventListener("click", (e) => {
-          e.stopPropagation();
-          deleteEntry(turn.id);
-        });
-
-        item.appendChild(q);
-        item.appendChild(del);
-        el.historyList.appendChild(item);
+      const del = document.createElement("button");
+      del.className = "history__del";
+      del.type = "button";
+      del.textContent = "×";
+      del.setAttribute("aria-label", "delete");
+      del.addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteConvo(c.id);
       });
+
+      item.appendChild(q);
+      item.appendChild(del);
+      el.historyList.appendChild(item);
+    });
   }
 
-  function scrollToTurn(id) {
-    const idx = state.turns.findIndex((t2) => t2.id === id);
-    if (idx < 0) return;
-    // Each turn renders as 2 message nodes (user + bot).
-    const nodes = el.chat.querySelectorAll(".msg");
-    const target = nodes[idx * 2];
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-
-  function deleteEntry(id) {
-    state.turns = state.turns.filter((tn) => tn.id !== id);
-    saveHistory();
+  // Switch to an existing conversation.
+  function switchConvo(id) {
+    if (state.busy) return; // don't switch away mid-answer
+    closeSidebarMobile();
+    if (id === state.activeId) return;
+    pruneEmpties(id); // discard any empty draft we're leaving behind
+    state.activeId = id;
+    saveActiveId();
     renderChat();
     renderHistory();
   }
 
+  // Start a fresh conversation, keeping all existing ones in the sidebar.
+  function newConversation() {
+    if (state.busy) return; // don't interrupt an in-flight answer
+    const cur = state.convos.find((c) => c.id === state.activeId);
+    // If the current chat is already blank, we're effectively there already.
+    if (!cur || cur.turns.length) {
+      createConvo();
+    }
+    pruneEmpties(state.activeId);
+    saveActiveId();
+    el.input.value = "";
+    autoGrow();
+    closeSidebarMobile();
+    renderChat();
+    renderHistory();
+    el.input.focus();
+  }
+
+  function deleteConvo(id) {
+    state.convos = state.convos.filter((c) => c.id !== id);
+    if (state.activeId === id) {
+      ensureActive();
+    }
+    saveConvos();
+    renderChat();
+    renderHistory();
+  }
+
+  // "Clear all" removes every conversation and starts fresh.
   function clearHistory() {
-    if (state.turns.length && !window.confirm(t("confirmClear"))) return;
-    state.turns = [];
-    deleteCookie(CFG.COOKIE_HISTORY);
+    const hasAny = state.convos.some((c) => c.turns.length);
+    if (hasAny && !window.confirm(t("confirmClear"))) return;
+    state.convos = [];
+    try {
+      localStorage.removeItem(CFG.STORE_CONVOS);
+    } catch (e) {}
+    createConvo();
+    saveActiveId();
     renderChat();
     renderHistory();
   }
@@ -847,11 +1055,15 @@
       return;
     }
 
+    const convo = activeConvo();
     const turn = { id: ++turnSeq, q: question, a: "", sources: [], ts: Date.now() };
-    state.turns.push(turn);
+    convo.turns.push(turn);
+    // The first question becomes the conversation's sidebar title.
+    if (!convo.title) convo.title = question;
+    convo.ts = Date.now();
     el.welcome.hidden = true;
     // Render the user message immediately.
-    if (state.turns.length === 1) el.chat.innerHTML = "";
+    if (convo.turns.length === 1) el.chat.innerHTML = "";
     el.chat.appendChild(makeMessage("user", escapeHtml(question)));
     renderHistory();
     scrollToBottom();
@@ -859,22 +1071,43 @@
     setBusy(true);
     showTyping();
 
+    // Bubble that fills in word-by-word as the answer streams in. Created lazily
+    // on the first streamed chunk so the typing dots show until text arrives.
+    let streamWrap = null;
+    let streamBubble = null;
+    let acc = "";
+
     try {
       const chunks = retrieve(question);
-      const answer = await askProvider(question, chunks);
+      const onDelta = (piece) => {
+        if (!piece) return;
+        acc += piece;
+        if (!streamWrap) {
+          removeTyping();
+          streamWrap = makeMessage("bot", "");
+          streamBubble = streamWrap.querySelector(".msg__bubble");
+          el.chat.appendChild(streamWrap);
+        }
+        streamBubble.innerHTML = renderMarkdown(acc);
+        scrollToBottom();
+      };
+      const answer = await askProvider(question, chunks, onDelta);
       turn.a = answer;
       turn.sources = chunks.length ? dedupeSources(chunks) : [];
+      convo.ts = Date.now();
       removeTyping();
-      el.chat.appendChild(
-        makeMessage("bot", renderMarkdown(answer), turn.sources)
-      );
-      saveHistory();
+      // Swap the streamed bubble for a final render that also carries sources.
+      const finalMsg = makeMessage("bot", renderMarkdown(answer), turn.sources);
+      if (streamWrap) el.chat.replaceChild(finalMsg, streamWrap);
+      else el.chat.appendChild(finalMsg);
+      saveConvos();
       renderHistory();
       scrollToBottom();
     } catch (err) {
       removeTyping();
-      // Roll back the failed turn from persisted history.
-      state.turns = state.turns.filter((tn) => tn.id !== turn.id);
+      if (streamWrap) streamWrap.remove();
+      // Roll back the failed turn from the active conversation.
+      convo.turns = convo.turns.filter((tn) => tn.id !== turn.id);
       const msg = errorMessage(err);
       el.chat.appendChild(makeMessage("bot", '<p>⚠️ ' + escapeHtml(msg) + "</p>"));
       if (err && err.kind === "invalidKey") openModal();
@@ -934,6 +1167,7 @@
     el.langToggle.addEventListener("click", toggleLanguage);
     el.settingsBtn.addEventListener("click", openModal);
     el.clearHistoryBtn.addEventListener("click", clearHistory);
+    el.newChatBtn.addEventListener("click", newConversation);
     el.menuToggle.addEventListener("click", () =>
       el.app.classList.toggle("sidebar-open")
     );

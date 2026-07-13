@@ -22,9 +22,10 @@ window.ESTITHMAR_CONFIG = {
     },
     claude: {
       label: "Anthropic Claude",
-      // Per Anthropic guidance, default to the most capable model. Lower the
-      // cost by switching to "claude-haiku-4-5" or "claude-sonnet-5" here.
-      model: "claude-opus-4-8",
+      // Claude Haiku 4.5 — the fastest, most cost-effective Claude model, which
+      // suits a short-answer demo. Switch to "claude-sonnet-5" or
+      // "claude-opus-4-8" here for higher quality at higher cost.
+      model: "claude-haiku-4-5",
       getKeyUrl: "https://console.anthropic.com/settings/keys",
       keyHint: "sk-ant-…",
       free: false,
@@ -47,17 +48,19 @@ window.ESTITHMAR_CONFIG = {
   // Path to the pre-built knowledge base (produced by scripts/build-knowledge.mjs).
   KNOWLEDGE_URL: "knowledge.json",
 
-  // Cookie names + lifetimes.
+  // Cookie names + lifetimes. Keys and small preferences live in cookies.
   COOKIE_KEY_GEMINI: "estithmar_gemini_key",
   COOKIE_KEY_CLAUDE: "estithmar_claude_key",
   COOKIE_PROVIDER: "estithmar_provider",
   COOKIE_LANG: "estithmar_lang",
-  COOKIE_HISTORY: "estithmar_history",
+  COOKIE_HISTORY: "estithmar_history", // legacy single-conversation cookie (migrated on load)
   COOKIE_DAYS: 180,
 
-  // Cookies are capped at ~4KB per domain. Keep stored history safely under that;
-  // oldest messages are trimmed automatically when the budget is exceeded.
-  HISTORY_MAX_BYTES: 3200,
+  // Conversations are kept in localStorage (a 4KB cookie can't hold multiple
+  // threads). Keys are the browser storage slots for the conversation list and
+  // the id of the currently open conversation.
+  STORE_CONVOS: "estithmar_convos",
+  STORE_ACTIVE: "estithmar_active",
 
   // The public Knowledge Center this demo references.
   KNOWLEDGE_CENTER_URL: "https://estithmar.org.sa/knowledge-center/",
